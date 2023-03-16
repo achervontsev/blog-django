@@ -4,6 +4,7 @@ from django.shortcuts import render, get_object_or_404
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.mail import send_mail
 from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+from django.views.decorators.http import require_POST
 
 from .models import Post, Comment
 from .forms import EmailPostForm, CommentForm, SearchForm
@@ -36,17 +37,11 @@ def post_detail(request, year, month, day, post):
                              publish__year=year,
                              publish__month=month,
                              publish__day=day)
+    
+    # List of active comments for this post
     comments = post.comments.filter(active=True)
-    new_comment = None
-
-    if request.method == 'POST':
-        comment_form = CommentForm(data=request.POST)
-        if comment_form.is_valid():
-            new_comment = comment_form.save(commit=False)
-            new_comment.post = post
-            new_comment.save()
-    else:
-        comment_form = CommentForm()
+    # Form for users to comment
+    form = CommentForm()
 
     post_tags_ids = post.tags.values_list('id', flat=True)
     similar_posts = Post.published.filter(tags__in=post_tags_ids).exclude(id=post.id)
@@ -54,8 +49,7 @@ def post_detail(request, year, month, day, post):
 
     return render(request, 'blog/post/detail.html', {'post': post,
                                                      'comments': comments,
-                                                     'new_comment': new_comment,
-                                                     'comment_form': comment_form,
+                                                     'form': form,
                                                      'similar_posts': similar_posts})
 
 
@@ -74,7 +68,26 @@ def post_share(request, post_id):
             sent = True
     else:
         form = EmailPostForm()
-    return render(request, 'blog/post/share.html', {'post': post, 'form': form})
+    return render(request, 'blog/post/share.html', {'post': post, 'form': form, 'sent': sent})
+
+
+@require_POST
+def post_comment(request, post_id):
+    post = get_object_or_404(Post, id=post_id, status='published')
+    comment = None
+    # A comment was posted
+    form = CommentForm(data=request.POST)
+    if form.is_valid():
+        # Create a comment object without saving it to the database
+        comment = form.save(commit=False)
+        # Assign the post to the comment
+        comment.post = post
+        # Save the comment to the database
+        comment.save()
+    return render(request, 'blog/post/comment.html',
+                            {'post': post,
+                             'form': form,
+                             'comment': comment})
 
 
 def post_search(request):
